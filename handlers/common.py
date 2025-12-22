@@ -32,6 +32,7 @@ class CommonMixin:
         text += "2️⃣ Perbarui Status Jadwal\n"
         
         if is_admin:
-            text += "3️⃣ ➕ Tambah Jadwal (Admin)" # <-- Menu Spesial
+            text += "3️⃣ Tambah Jadwal (Admin)\n"
+            text += "4️⃣ Upload Surat Resmi (Admin)" # <-- MENU BARU
             
         await update.message.reply_text(text)
