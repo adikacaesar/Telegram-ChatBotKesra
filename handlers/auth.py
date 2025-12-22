@@ -33,7 +33,7 @@ class AuthMixin:
                     f"✅ Halo **{pegawai.get('Nama')}**!\n\n"
                     "Menu Utama:\n"
                     "1️⃣ Cek Jadwal\n"
-                    "2️⃣ Upload Laporan"
+                    "2️⃣ Perbarui Status Jadwal"
                 )
             else:
                 await update.message.reply_text("❌ ID Salah / Tidak Ditemukan di Database Pegawai.")
