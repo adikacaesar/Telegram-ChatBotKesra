@@ -1,49 +1,55 @@
-from core.config import TAB_PEGAWAI, TAB_RKM
+from telegram import Update
+from telegram.ext import ContextTypes
+from core.config import TAB_PEGAWAI
 
 class AuthMixin:
-    """Bagian Otak untuk Login & Logout"""
+    """Logika untuk Login dan Logout"""
 
     async def proses_login(self, update, context, text, chat_id):
-        # Cek apakah input berupa Angka (ID)
+        # Jika user mengirim angka (ID Pegawai)
         if text.isdigit():
             id_input = int(text)
             
-            # Cari di Database Pegawai (yang sudah diload di main_handler)
-            # Mencari baris pegawai yang ID-nya cocok dengan input
-            pegawai = next((p for p in self.db_pegawai if p.get('ID_Pegawai') == id_input), None)
+            # Cari di database pegawai
+            found_user = None
+            for p in self.db_pegawai:
+                # Pastikan perbandingannya string vs string atau int vs int
+                if str(p['ID_Pegawai']) == str(id_input):
+                    found_user = p
+                    break
             
-            if pegawai:
-                # 1. BUAT SESI BARU (Simpan di RAM)
-                # Ini agar bot tahu siapa yang sedang chat sekarang
+            if found_user:
+                # --- PERBAIKAN DI SINI ---
+                # Kita harus simpan Jabatan ke dalam sesi
+                # Ambil kolom 'Jabatan 1' dari Excel. Jika kosong, default ke string kosong.
+                jabatan_user = str(found_user.get('Jabatan 1', '')).strip() 
+                
+                # Simpan ke memori sesi (RAM)
                 self.sessions[chat_id] = {
-                    'nama': pegawai.get('Nama'), 
-                    'state': 'MAIN_MENU', 
-                    'temp_list': [], 
-                    'selected_rapat': None
+                    'id': id_input,
+                    'nama': found_user['Nama'],
+                    'jabatan': jabatan_user, # <-- PENTING: Agar menu admin muncul
+                    'state': 'MAIN_MENU'
                 }
                 
-                # === FITUR BARU: SIMPAN CHAT ID KE EXCEL ===
-                # Memanggil fungsi di services.py untuk menulis Chat ID ke kolom spreadsheet
-                # Agar jika bot mati, kita tetap punya data kontak pegawai ini untuk broadcast
+                # Simpan Chat ID ke Excel (Auto-Save fitur Checkpoint 2)
                 self.google.simpan_chat_id(id_input, chat_id)
-                # ===========================================
-
-                # Kirim pesan sukses login
-                await update.message.reply_text(
-                    f"✅ Halo **{pegawai.get('Nama')}**!\n\n"
-                    "Menu Utama:\n"
-                    "1️⃣ Cek Jadwal\n"
-                    "2️⃣ Perbarui Status Jadwal"
-                )
+                
+                # Tampilkan Menu Utama
+                # Kita panggil fungsi tampilkan_menu_utama dari CommonMixin
+                # Karena AuthMixin nanti digabung di MainHandler, kita bisa panggil self.tampilkan_menu_utama
+                await self.tampilkan_menu_utama(update, found_user['Nama'])
+                
             else:
-                await update.message.reply_text("❌ ID Salah / Tidak Ditemukan di Database Pegawai.")
+                await update.message.reply_text("❌ ID tidak ditemukan. Coba lagi.")
         else:
-            await update.message.reply_text("🔒 Anda belum login.\nSilakan ketik **ID Pegawai** Anda (Angka) untuk masuk.")
+            await update.message.reply_text(
+                "🔒 **Anda belum login.**\n"
+                "Silakan ketik **ID Pegawai** Anda (Angka) untuk masuk."
+            )
 
     async def proses_logout(self, update, chat_id):
         if chat_id in self.sessions:
-            # Hapus sesi dari memori
+            nama = self.sessions[chat_id]['nama']
             del self.sessions[chat_id]
-            await update.message.reply_text("👋 Logout berhasil. Sampai jumpa lagi!")
-        else:
-            await update.message.reply_text("⚠️ Anda belum login.")
+            await update.message.reply_text(f"👋 Sampai jumpa, {nama}!\nAnda berhasil logout.")

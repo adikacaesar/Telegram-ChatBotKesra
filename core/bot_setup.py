@@ -6,8 +6,10 @@ def daftar_handlers(app, bot_logic):
     """
     Tugas: Mendaftarkan rute pesan (siapa menangani apa).
     """
-    # 1. Command /start
+    # 1. Command /start (Menu Awal)
     app.add_handler(CommandHandler('start', bot_logic.start))
+    
+    # ⚠️ REVISI: Command '/rapat' KITA HAPUS karena sudah diganti jadi Menu Tombol 3
     
     # 2. Pesan Teks (Menu & Inputan)
     # filters.TEXT & (~filters.COMMAND) artinya: Terima teks apa saja KECUALI perintah berawalan /
