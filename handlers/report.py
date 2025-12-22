@@ -2,13 +2,12 @@ import os
 from core.config import TAB_RKM
 
 class ReportMixin:
-    """Bagian Otak untuk Upload & Laporan (Versi Upgrade Izin/Sakit)"""
+    """Bagian Otak untuk Upload & Laporan (Support Multi-Upload)"""
 
     async def menu_upload_init(self, update, session):
         await update.message.reply_text("🔄 Sinkronisasi data...")
         self.db_rkm = self.google.ambil_data(TAB_RKM)
         
-        # Cari jadwal yang 'Bukti Kehadiran'-nya masih kosong
         jadwal_belum = [
             r for r in self.db_rkm 
             if r.get('Peserta') == session['nama'] and not r.get('Bukti Kehadiran')
@@ -21,7 +20,7 @@ class ReportMixin:
         session['temp_list'] = jadwal_belum
         session['state'] = 'SELECTING_RAPAT'
         
-        pesan = "📝 **PERBARUI STATUS KEHADIRAN:**\nSilakan pilih kegiatan yang ingin dilaporkan:\n\n"
+        pesan = "📝 **PERBARUI STATUS KEHADIRAN:**\nSilakan pilih kegiatan:\n\n"
         for i, j in enumerate(jadwal_belum):
             pesan += f"**{i+1}.** {j['Kegiatan']} ({j['Tanggal']})\n"
         pesan += "\n❌ Ketik 'batal' untuk kembali."
@@ -36,9 +35,11 @@ class ReportMixin:
             idx = int(text) - 1
             if 0 <= idx < len(session['temp_list']):
                 session['selected_rapat'] = session['temp_list'][idx]
-                
-                # --- UPDATE ALUR: Tanya Status Dulu ---
                 session['state'] = 'SELECTING_STATUS'
+                
+                # SIAPKAN LIST PENAMPUNG LINK (Fitur Baru Multi-Upload)
+                session['collected_links'] = [] 
+                
                 rapat = session['selected_rapat']
                 await update.message.reply_text(
                     f"✅ Kegiatan: **{rapat['Kegiatan']}**\n"
@@ -53,82 +54,140 @@ class ReportMixin:
             await update.message.reply_text("Ketik nomor.")
 
     async def proses_pilih_status(self, update, text, session):
-        """Memproses pilihan 1. Hadir, 2. Izin, 3. Sakit"""
         if text == '1': # HADIR
             session['state'] = 'AWAITING_PHOTO'
-            await update.message.reply_text("📸 Silakan kirim **FOTO BUKTI** kegiatan.")
+            session['jenis_laporan'] = "HADIR"
+            await update.message.reply_text(
+                "📸 **MODE MULTI-UPLOAD AKTIF**\n\n"
+                "Silakan kirim FOTO kegiatan.\n"
+                "Bisa kirim **banyak foto sekaligus** (Album).\n\n"
+                "👉 Jika semua foto sudah terkirim, KETIK: **SELESAI**"
+            )
         
         elif text == '2': # IZIN
             session['state'] = 'AWAITING_REASON_IZIN'
-            await update.message.reply_text("📝 Silakan ketik **ALASAN** Anda izin:\n(Contoh: Ada urusan keluarga mendesak)")
+            await update.message.reply_text("📝 Silakan ketik **ALASAN** Anda izin:")
         
         elif text == '3': # SAKIT
             session['state'] = 'AWAITING_PHOTO_SAKIT'
-            await update.message.reply_text("dws 🏥 Silakan kirim **FOTO SURAT DOKTER** atau keterangan sakit.")
+            session['jenis_laporan'] = "SAKIT"
+            await update.message.reply_text(
+                "🏥 **UPLOAD SURAT DOKTER**\n\n"
+                "Silakan kirim foto surat.\n"
+                "👉 Jika sudah, KETIK: **SELESAI**"
+            )
         
         elif text.lower() == 'batal':
             await self.tampilkan_menu_utama(update, session['nama'])
         else:
             await update.message.reply_text("Pilih angka 1, 2, atau 3.")
 
-    # --- HANDLER 1: FOTO HADIR ---
+    # --- HANDLER 1: FOTO (HADIR & SAKIT - LOGIKA SAMA) ---
     async def proses_terima_foto(self, update, session):
-        await self._upload_generic(update, session, jenis="HADIR")
-
-    # --- HANDLER 2: ALASAN IZIN (TEKS) ---
-    async def proses_terima_alasan_izin(self, update, session):
-        alasan = update.message.text
+        """
+        Fungsi ini dipanggil berulang-ulang setiap ada foto masuk.
+        Tugasnya cuma upload ke Drive & simpan link di RAM.
+        """
         chat_id = update.message.chat_id
         rapat = session['selected_rapat']
+        jenis = session.get('jenis_laporan', 'HADIR')
         
-        await update.message.reply_text("⏳ Menyimpan catatan izin ke Drive...")
+        # Ambil caption bawaan foto (jika user ngasih caption di foto Telegramnya)
+        caption_foto = update.message.caption or ""
         
-        # Nama file: IZIN_Nama_Kegiatan.txt
+        label_file = "Bukti" if jenis == "HADIR" else "SuratSakit"
+        
+        try:
+            # Download Foto
+            photo_file = await update.message.photo[-1].get_file()
+            # Nama file unik pakai timestamp
+            import time
+            nama_lokal = f"temp_{chat_id}_{int(time.time())}.jpg"
+            await photo_file.download_to_drive(nama_lokal)
+            
+            # Upload Drive
+            nama_drive = f"{label_file}_{session['nama']}_{rapat['Kegiatan'][:10]}_{int(time.time())}.jpg"
+            link = self.google.upload_ke_drive(nama_lokal, nama_drive)
+            
+            # Hapus file lokal
+            if os.path.exists(nama_lokal): os.remove(nama_lokal)
+
+            if link:
+                # FORMAT PENYIMPANAN: Link (Caption Foto)
+                if caption_foto:
+                    data_simpan = f"{link} (Note: {caption_foto})"
+                else:
+                    data_simpan = link
+                
+                # Masukkan ke keranjang sementara
+                session['collected_links'].append(data_simpan)
+                
+                # REVISI: HAPUS quote=True YANG BIKIN ERROR
+                jml = len(session['collected_links'])
+                await update.message.reply_text(f"✅ Foto ke-{jml} diterima.\n(Ketik **SELESAI** jika sudah semua)")
+            else:
+                await update.message.reply_text("❌ Gagal Upload Drive.")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error: {e}")
+
+    # --- HANDLER 2: KETIKA KETIK "SELESAI" ---
+    async def proses_selesai_upload_foto(self, update, session):
+        """User sudah selesai kirim foto, sekarang minta keterangan akhir"""
+        if not session.get('collected_links'):
+            await update.message.reply_text("⚠️ Belum ada foto yang diterima! Kirim foto dulu.")
+            return
+
+        session['state'] = 'AWAITING_FINAL_CAPTION'
+        await update.message.reply_text(
+            "🆗 Foto tersimpan sementara.\n\n"
+            "Apakah ada **Keterangan Tambahan** untuk laporan ini?\n"
+            "(Contoh: 'Hadir mewakili Pak Kabag' atau ketik 'skip' jika tidak ada)"
+        )
+
+    # --- HANDLER 3: FINALISASI (SIMPAN KE EXCEL) ---
+    async def proses_simpan_akhir(self, update, session):
+        keterangan_tambahan = update.message.text
+        if keterangan_tambahan.lower() == 'skip':
+            keterangan_tambahan = ""
+
+        rapat = session['selected_rapat']
+        jenis = session.get('jenis_laporan', 'HADIR')
+        links = session['collected_links']
+
+        await update.message.reply_text("⏳ Menggabungkan data & update Excel...")
+
+        # GABUNG LINK DENGAN ENTER (\n)
+        gabungan_link = "\n".join(links)
+        
+        if keterangan_tambahan:
+            gabungan_link += f"\n\n[Keterangan: {keterangan_tambahan}]"
+
+        # Tentukan masuk kolom mana
+        if jenis == "HADIR":
+            sukses, msg = self.google.update_bukti(session['nama'], rapat['Kegiatan'], rapat['Tanggal'], gabungan_link, jenis_laporan="HADIR")
+        else:
+            # Sakit
+            sukses, msg = self.google.update_bukti(session['nama'], rapat['Kegiatan'], rapat['Tanggal'], gabungan_link, jenis_laporan="SAKIT")
+
+        if sukses:
+            await update.message.reply_text(f"✅ **LAPORAN SUKSES!**\n{len(links)} Foto berhasil ditautkan.")
+            await self.tampilkan_menu_utama(update, session['nama'])
+        else:
+            await update.message.reply_text(f"⚠️ Gagal Update Excel: {msg}")
+
+    # --- HANDLER IZIN ---
+    async def proses_terima_alasan_izin(self, update, session):
+        alasan = update.message.text
+        rapat = session['selected_rapat']
+        await update.message.reply_text("⏳ Menyimpan catatan izin...")
+        
         nama_file = f"IZIN_{session['nama']}_{rapat['Kegiatan'][:10]}.txt"
-        
-        # Upload Teks
         link = self.google.upload_text_ke_drive(nama_file, f"Alasan Izin: {alasan}\nOleh: {session['nama']}")
         
         if link:
             sukses, msg = self.google.update_bukti(session['nama'], rapat['Kegiatan'], rapat['Tanggal'], link, jenis_laporan="IZIN")
             if sukses:
-                await update.message.reply_text(f"✅ **IZIN TERCATAT!**\nCatatan disimpan di Drive.\nLink: {link}")
+                await update.message.reply_text(f"✅ Izin Tercatat.")
                 await self.tampilkan_menu_utama(update, session['nama'])
             else:
                 await update.message.reply_text(f"⚠️ Gagal Excel: {msg}")
-        else:
-            await update.message.reply_text("❌ Gagal Upload ke Drive.")
-
-    # --- HANDLER 3: FOTO SAKIT ---
-    async def proses_terima_foto_sakit(self, update, session):
-        await self._upload_generic(update, session, jenis="SAKIT")
-
-    # --- HELPER UPLOAD FOTO (Bisa buat Hadir / Sakit) ---
-    async def _upload_generic(self, update, session, jenis):
-        chat_id = update.message.chat_id
-        rapat = session['selected_rapat']
-        
-        label_file = "Bukti" if jenis == "HADIR" else "SuratSakit"
-        await update.message.reply_text(f"⏳ Mengupload {label_file}...")
-        
-        try:
-            photo_file = await update.message.photo[-1].get_file()
-            nama_lokal = f"temp_{chat_id}.jpg"
-            await photo_file.download_to_drive(nama_lokal)
-            
-            nama_drive = f"{label_file}_{session['nama']}_{rapat['Kegiatan'][:10]}.jpg"
-            link = self.google.upload_ke_drive(nama_lokal, nama_drive)
-            
-            if os.path.exists(nama_lokal): os.remove(nama_lokal)
-
-            if link:
-                sukses, msg = self.google.update_bukti(session['nama'], rapat['Kegiatan'], rapat['Tanggal'], link, jenis_laporan=jenis)
-                if sukses:
-                    await update.message.reply_text(f"✅ **Laporan {jenis} Diterima!**\nLink: {link}")
-                    await self.tampilkan_menu_utama(update, session['nama'])
-                else:
-                    await update.message.reply_text(f"⚠️ Gagal Excel: {msg}")
-            else:
-                await update.message.reply_text("❌ Gagal Upload Drive.")
-        except Exception as e:
-            await update.message.reply_text(f"❌ Error: {e}")
