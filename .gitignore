@@ -1,0 +1,9 @@
+# Abaikan file rahasia
+client_secret.json
+token.json
+BotKesra/token.json
+.env
+
+# Abaikan file sampah Python (cache)
+__pycache__/
+*.pyc
