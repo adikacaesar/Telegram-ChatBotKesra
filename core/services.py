@@ -160,3 +160,43 @@ class GoogleService:
             return False, "ID Kegiatan tidak ditemukan."
         except Exception as e:
             return False, str(e)
+            
+    # =========================================================
+    #  [BARU] FITUR TAMBAHAN: CONFIG NOTIFIKASI
+    # =========================================================
+    
+    def ambil_config_notif(self):
+        """Mengambil semua data jadwal notifikasi dari Excel"""
+        try:
+            sheet = self.sheet_client.open(self.NAMA_SPREADSHEET)
+            worksheet = sheet.worksheet(TAB_CONFIG_NOTIF)
+            return worksheet.get_all_records()
+        except Exception as e:
+            print(f"⚠️ Error ambil config: {e}")
+            return []
+
+    def tambah_config_notif(self, waktu, pesan, target="ALL"):
+        """Menambah jadwal baru dengan filter Target"""
+        try:
+            sheet = self.sheet_client.open(self.NAMA_SPREADSHEET)
+            worksheet = sheet.worksheet(TAB_CONFIG_NOTIF)
+            # Format Kolom: Waktu | Pesan | Status | Target
+            worksheet.append_row([waktu, pesan, "ON", target])
+            return True
+        except Exception as e:
+            print(f"❌ Gagal tambah config: {e}")
+            return False
+
+    def hapus_config_notif(self, waktu_target):
+        """Hapus jadwal berdasarkan jam"""
+        try:
+            sheet = self.sheet_client.open(self.NAMA_SPREADSHEET)
+            worksheet = sheet.worksheet(TAB_CONFIG_NOTIF)
+            cell = worksheet.find(waktu_target)
+            if cell:
+                worksheet.delete_rows(cell.row)
+                return True
+            return False
+        except Exception as e:
+            print(f"❌ Gagal hapus config: {e}")
+            return False

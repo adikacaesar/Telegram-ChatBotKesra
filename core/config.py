@@ -22,3 +22,4 @@ ID_FOLDER_SURAT = "1M_rCwxzTxbC3YNtdiW3xzsvkSGuQt9YH"
 # 3. NAMA TAB SHEET
 TAB_PEGAWAI = "ID_Pegawai"
 TAB_RKM = "RKM"
+TAB_CONFIG_NOTIF = "Config_Notif" # <-- [BARU] Tambahan untuk fitur notifikasi
